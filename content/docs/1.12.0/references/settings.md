@@ -57,11 +57,14 @@ weight: 1
   - [Default Ublk Queue Depth](#default-ublk-queue-depth)
   - [Default Ublk Number Of Queue](#default-ublk-number-of-queue)
   - [Node Disk Health Monitoring](#node-disk-health-monitoring)
+  - [CSI Storage Capacity Tracking](#csi-storage-capacity-tracking)
+  - [Kubernetes Metrics Server Metrics Enabled](#kubernetes-metrics-server-metrics-enabled)
 - [Snapshot](#snapshot)
   - [Snapshot Data Integrity](#snapshot-data-integrity)
   - [Immediate Snapshot Data Integrity Check After Creating a Snapshot](#immediate-snapshot-data-integrity-check-after-creating-a-snapshot)
   - [Snapshot Data Integrity Check CronJob](#snapshot-data-integrity-check-cronjob)
   - [Snapshot Maximum Count](#snapshot-maximum-count)
+  - [Snapshot Count Warning Threshold](#snapshot-count-warning-threshold)
   - [Freeze Filesystem For Snapshot](#freeze-filesystem-for-snapshot)
 - [Orphan](#orphan)
   - [Orphaned Resource Automatic Deletion](#orphaned-resource-automatic-deletion)
@@ -107,6 +110,9 @@ weight: 1
   - [Disable Snapshot Purge](#disable-snapshot-purge)
   - [Auto Cleanup Snapshot When Delete Backup](#auto-cleanup-snapshot-when-delete-backup)
   - [Auto Cleanup Snapshot After On-Demand Backup Completed](#auto-cleanup-snapshot-after-on-demand-backup-completed)
+  - [Engine Image Pod Liveness Probe Period](#engine-image-pod-liveness-probe-period)
+  - [Engine Image Pod Liveness Probe Timeout](#engine-image-pod-liveness-probe-timeout)
+  - [Engine Image Pod Liveness Probe Failure Threshold](#engine-image-pod-liveness-probe-failure-threshold)
   - [Instance Manager Pod Liveness Probe Timeout](#instance-manager-pod-liveness-probe-timeout)
   - [Data Engine CPU Mask](#data-engine-cpu-mask)
   - [Data Engine Hugepage Enabled](#data-engine-hugepage-enabled)
@@ -618,6 +624,8 @@ The external URL to access the Longhorn Manager API. When configured, this URL i
 
 This setting is useful when accessing the Longhorn API through Ingress or Gateway API HTTPRoute, where the API may return internal cluster IPs if the ingress controller doesn't properly set `X-Forwarded-*` headers.
 
+> **Warning**: Internal Longhorn components (including `longhorn-driver-deployer` and `longhorn-csi-plugin`) follow the links returned in API responses. If this URL passes through proxy middleware (such as an OAuth2 proxy, ingress auth, or any other HTTP-intercepting layer), those components may receive an unexpected response (such as an HTML redirect) instead of JSON, causing errors such as `invalid character '<' looking for beginning of value` and CSI driver deployment failure.
+
 **Format**: `scheme://host[:port]` where:
 
 - `scheme`: Must be `http` or `https`
@@ -657,6 +665,18 @@ The default the number of queues for ublk frontend. This setting applies to volu
 
 Controls whether Longhorn monitors and records health information for node disks. When disabled, disk health checks and status updates are skipped.
 
+#### CSI Storage Capacity Tracking
+
+> Default: `false`
+
+Controls CSI storage capacity tracking, which allows the kube-scheduler to filter nodes that cannot fit the requested volume.
+
+#### Kubernetes Metrics Server Metrics Enabled
+
+> Default: `true`
+
+Allows Longhorn to query the Kubernetes Metrics Server (`'metrics.k8s.io'`) for pod and node resource usage.
+
 ### Snapshot
 
 #### Snapshot Data Integrity
@@ -688,6 +708,14 @@ Unix-cron string format. The setting specifies when Longhorn checks the data int
 > Default: `250`
 
 Maximum snapshot count for a volume. The value should be between 2 to 250.
+
+#### Snapshot Count Warning Threshold
+
+> Default: `100`
+
+Warning threshold for the count-based `TooManySnapshots` volume condition. The value should be between 2 to 250.
+
+When the number of snapshots on a volume reaches `min(snapshot-count-warning-threshold, SnapshotMaxCount)`, Longhorn sets the `TooManySnapshots` condition. For more information, see [Snapshot Space Management](../snapshots-and-backups/snapshot-space-management#toomanysnapshots-condition).
 
 #### Freeze Filesystem For Snapshot
 
@@ -1000,7 +1028,7 @@ If you do not detach all volumes before the settings are synchronized, the setti
   | [System Managed Components Node Selector](#system-managed-components-node-selector) | [Node Selector](../../advanced-resources/deploy/node-selector/) | System-managed components |
   | [Storage Network](#storage-network) | [Storage Network](../../advanced-resources/deploy/storage-network/) | Instance Manager and Backing Image components |
   | [V1 Data Engine](#v1-data-engine) || Instance Manager component |
-  | [V2 Data Engine](#v2-data-engine) | [V2 Data Engine (Technical Preview)](../../v2-data-engine/) | Instance Manager component |
+  | [V2 Data Engine](#v2-data-engine) || Instance Manager component |
   | [Guaranteed Instance Manager CPU](#guaranteed-instance-manager-cpu) || Instance Manager component |
 
 For V1 and V2 Data Engine settings, you can disable the Data Engines only when all associated volumes are detached. For example, you can disable the V2 Data Engine only when all V2 volumes are detached (even when V1 volumes are still attached).
@@ -1015,7 +1043,7 @@ Setting that allows you to enable the V1 Data Engine.
 
 > Default: `false`
 
-Setting that allows you to enable the V2 Data Engine, which is based on the Storage Performance Development Kit (SPDK). The V2 Data Engine is an Technical Preview feature. For more information, see [V2 Data Engine (Technical Preview)](../../v2-data-engine).
+Setting that allows you to enable the V2 Data Engine, which is based on the Storage Performance Development Kit (SPDK).
 
 > **Warning**
 >
@@ -1200,6 +1228,36 @@ When set to true, the snapshot used by the backup will be automatically cleaned 
 
 When set to true, the snapshot used by the backup will be automatically cleaned up after the on-demand backup is completed.
 
+#### Engine Image Pod Liveness Probe Period
+
+> Default: `5`
+
+Interval (in seconds) between liveness probes for engine image pods.
+
+> **Warning**
+>
+> Applying this setting causes Longhorn to update existing engine image DaemonSets immediately.
+
+#### Engine Image Pod Liveness Probe Timeout
+
+> Default: `4`
+
+Timeout (in seconds) for each liveness probe.
+
+> **Warning**
+>
+> Applying this setting causes Longhorn to update existing engine image DaemonSets immediately.
+
+#### Engine Image Pod Liveness Probe Failure Threshold
+
+> Default: `3`
+
+Number of consecutive failed probes required to trigger a pod restart.
+
+> **Warning**
+>
+> Applying this setting causes Longhorn to update existing engine image DaemonSets immediately.
+
 #### Instance Manager Pod Liveness Probe Timeout
 
 > Default: `10`
@@ -1212,9 +1270,9 @@ In seconds. The setting specifies the timeout for the instance manager pod liven
 
 #### Data Engine CPU Mask
 
-> Default: `{"v2":"0x1"}`
+> Default: `{"v2":"0x3"}`
 
-Applies only to the V2 Data Engine. Specifies the CPU cores on which the Storage Performance Development Kit (SPDK) target daemon runs. The daemon is deployed in each Instance Manager pod. Ensure that the number of assigned cores does not exceed the guaranteed Instance Manager CPUs for the V2 Data Engine.
+Applies only to the V2 Data Engine. Specifies the CPU cores on which the Storage Performance Development Kit (SPDK) target daemon runs. The daemon is deployed in each Instance Manager pod. Ensure that the assigned CPU cores do not exceed the guaranteed CPUs allocated to the V2 Data Engine Instance Manager. A minimum of 2 CPU cores is recommended. SPDK uses a busy-polling reactor model where the master reactor handles both I/O polling and management RPCs. When only a single core is assigned, heavy I/O workloads can delay or starve RPC processing, resulting in increased latency, timeout events, and operational instability. Assigning 2 or more cores allows I/O and management tasks to run on separate reactors, improving responsiveness and operational stability. Accepts either hexadecimal CPU masks (for example, 0x3 or 0xff) or CPU list format (for example, 0-1,2,5). CPU lists are automatically converted to hexadecimal masks. The default value is 0x3.
 
 #### Data Engine Hugepage Enabled
 

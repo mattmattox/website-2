@@ -279,7 +279,7 @@ A list of recurring jobs that are to be run on a volume.
 
 > Default: `"v1"`
 
-  - Specify "v2" to enable the V2 Data Engine (Technical Preview feature). When unspecified, Longhorn uses the default value ("v1").
+  - Specify "v2" to enable the V2 Data Engine. When unspecified, Longhorn uses the default value ("v1").
 
 > Global setting: [V2 Data Engine](../settings#v2-data-engine).
 > More details in [V2 Data Engine Quick Start](../../v2-data-engine/quick-start#create-a-storageclass).
